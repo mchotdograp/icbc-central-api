@@ -67,6 +67,9 @@ class ReportRequest(BaseModel):
 
 
 # ------------------ 路由 ------------------
+@app.get("/healthz")
+def health_check():
+    return {"status": "ok"}
 
 @app.post("/api/enroll")
 def enroll(req: EnrollRequest):
