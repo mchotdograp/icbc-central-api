@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -35,6 +36,14 @@ Base.metadata.create_all(bind=engine)
 # ------------------ FastAPI ------------------
 app = FastAPI(title="ICBC Central API", version="0.1")
 
+# 添加 CORS 中间件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 允许所有来源，生产环境中应该限制为特定域名
+    allow_credentials=True,
+    allow_methods=["*"],  # 允许所有方法
+    allow_headers=["*"],  # 允许所有头部
+)
 
 # ------------------ 模型 ------------------
 class Contact(BaseModel):
@@ -73,15 +82,20 @@ def health_check():
 
 @app.post("/api/enroll")
 def enroll(req: EnrollRequest):
-    db = SessionLocal()
-    task = Task(
-        school_id=req.school_id,
-        data=json.dumps(req.dict()),
-    )
-    db.add(task)
-    db.commit()
-    db.refresh(task)
-    return {"status": "ok", "task_id": task.id}
+    try:
+        db = SessionLocal()
+        task = Task(
+            school_id=req.school_id,
+            data=json.dumps(req.dict()),
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+        db.close()
+        return {"status": "ok", "task_id": task.id}
+    except Exception as e:
+        print(f"Error in enroll: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 @app.get("/api/tasks")
@@ -91,6 +105,7 @@ def get_tasks(school_id: str, since: Optional[str] = None):
     if since:
         q = q.filter(Task.created_at >= since)
     tasks = q.all()
+    db.close()
     return {
         "tasks": [
             {"task_id": t.id, **json.loads(t.data)} for t in tasks
@@ -113,8 +128,10 @@ def get_config(school_id: str):
         cfg = db.query(Config).filter(Config.school_id == None).first()
 
     if cfg:
+        db.close()
         return json.loads(cfg.data)
     else:
+        db.close()
         # 默认参数
         return {
             "rate_limits": {
